@@ -1,12 +1,21 @@
-# Version: 9
+# Version: 10
 # ChangeLog:
-# - Añadido AndroidX Navigation para resolver defaultNavHost/startDestination/destination.
-# - Añadidos fallbacks de SettingsLib requeridos por WallpaperPicker2.
-# - Añadidos estilos, dimensiones, atributos y colores AOSP faltantes.
-# - Conservada compilación Release + firmado + GitHub Release.
-# - Corregida limpieza de package="..." para AGP 8+.
-# - Corregida limpieza de assetsPaths.
-# - Aumentada compatibilidad con layouts originales de WallpaperPicker2.
+# - Reorganización completa del árbol de fuentes de WallpaperPicker2.
+# - Conservación de la estructura Java/Kotlin original.
+# - Detección automática de fuentes Java y Kotlin.
+# - Añadido Kotlin Android plugin.
+# - Añadido AndroidX Navigation.
+# - Añadido Glide.
+# - Añadidos AndroidX Core, Fragment, Activity, RecyclerView y ViewPager2.
+# - Corrección automática de android.annotation.StringRes -> androidx.annotation.StringRes.
+# - Conservados fallbacks AOSP/SettingsLib necesarios para AAPT.
+# - Diagnóstico automático de clases críticas antes de compilar.
+# - Compilación Release.
+# - Verificación y firmado mediante apksigner.
+# - Creación automática de GitHub Release.
+#
+# Objetivo:
+# Compilar WallpaperPicker2 de AOSP como APK independiente.
 
 name: Build AOSP WallpaperPicker2
 
@@ -18,25 +27,27 @@ on:
 
   workflow_dispatch:
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
+permissions:
+  contents: write
 
-    permissions:
-      contents: write
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
 
     steps:
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # CHECKOUT
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Checkout local repository
         uses: actions/checkout@v4
 
-      # ---------------------------------------------------------
-      # JAVA
-      # ---------------------------------------------------------
+      # ==========================================================
+      # JAVA 17
+      # ==========================================================
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -44,34 +55,46 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # ANDROID SDK
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK packages
+      - name: Install Android SDK
+        shell: bash
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-34"
-          sdkmanager "build-tools;34.0.0"
+          set -e
 
-      # ---------------------------------------------------------
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
+
+      # ==========================================================
       # CLONE AOSP WALLPAPERPICKER2
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Clone AOSP WallpaperPicker2
+        shell: bash
         run: |
-          git clone --depth=1 \
+          set -e
+
+          rm -rf source_code
+
+          git clone \
+            --depth=1 \
             https://android.googlesource.com/platform/packages/apps/WallpaperPicker2 \
             source_code
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # PREPARE PROJECT
-      # ---------------------------------------------------------
+      # ==========================================================
 
-      - name: Setup Project Structure and Resources
+      - name: Prepare standalone Gradle project
         shell: bash
         run: |
 
@@ -79,45 +102,120 @@ jobs:
 
           cd source_code
 
-          echo "=========================================="
-          echo "Preparing WallpaperPicker2"
-          echo "=========================================="
+          echo "=================================================="
+          echo "WallpaperPicker2 standalone build"
+          echo "=================================================="
+
+          echo ""
+          echo "AOSP revision:"
+          git log -1 --oneline || true
+
+          # ------------------------------------------------------
+          # DIRECTORIES
+          # ------------------------------------------------------
+
+          mkdir -p app/src/main
+          mkdir -p app/src/main/java
+          mkdir -p app/src/main/res
+
+          # ======================================================
+          # LOCATE ORIGINAL AOSP SOURCES
+          # ======================================================
+
+          echo ""
+          echo "Searching original source tree..."
+
+          SOURCE_ROOT=""
+
+          if [ -d "src" ]; then
+            SOURCE_ROOT="src"
+          elif [ -d "src/com" ]; then
+            SOURCE_ROOT="src"
+          fi
+
+          if [ -z "$SOURCE_ROOT" ]; then
+            echo "ERROR: AOSP src directory was not found."
+            find . -maxdepth 3 -type d | sort | head -200
+            exit 1
+          fi
+
+          echo "SOURCE_ROOT=$SOURCE_ROOT"
+
+          # ======================================================
+          # COPY JAVA/KOTLIN WITHOUT FLATTENING PACKAGE TREE
+          # ======================================================
+
+          echo ""
+          echo "Copying Java/Kotlin sources..."
 
           mkdir -p app/src/main/java
-          mkdir -p app/src/main/res/values
-          mkdir -p app/src/main/res/values-night
 
-          # -----------------------------------------------------
+          cp -a "$SOURCE_ROOT"/. app/src/main/java/
+
+          echo ""
+          echo "Java files:"
+          find app/src/main/java -type f -name "*.java" | wc -l
+
+          echo "Kotlin files:"
+          find app/src/main/java -type f \
+            \( -name "*.kt" -o -name "*.kts" \) | wc -l
+
+          # ======================================================
+          # COPY RESOURCES
+          # ======================================================
+
+          echo ""
+          echo "Copying resources..."
+
+          if [ -d "res" ]; then
+            cp -a res/. app/src/main/res/
+          fi
+
+          # Some AOSP revisions contain resources in nested
+          # Android application directories.
+
+          if [ -d "src/main/res" ]; then
+            cp -a src/main/res/. app/src/main/res/
+          fi
+
+          # ======================================================
           # GRADLE PROPERTIES
-          # -----------------------------------------------------
+          # ======================================================
 
           cat > gradle.properties <<'EOF'
           android.useAndroidX=true
           android.enableJetifier=true
           org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
           android.nonTransitiveRClass=false
+          android.defaults.buildfeatures.buildconfig=true
           EOF
 
-          # -----------------------------------------------------
+          # ======================================================
           # SETTINGS.GRADLE
-          # -----------------------------------------------------
+          # ======================================================
 
           cat > settings.gradle <<'EOF'
           pluginManagement {
+
               repositories {
                   google()
                   mavenCentral()
                   gradlePluginPortal()
               }
+
           }
 
           dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+              repositoriesMode.set(
+                  RepositoriesMode.FAIL_ON_PROJECT_REPOS
+              )
 
               repositories {
                   google()
                   mavenCentral()
               }
+
           }
 
           rootProject.name = "WallpaperPicker2"
@@ -125,30 +223,41 @@ jobs:
           include(":app")
           EOF
 
-          # -----------------------------------------------------
+          # ======================================================
           # ROOT BUILD.GRADLE
-          # -----------------------------------------------------
+          # ======================================================
 
           cat > build.gradle <<'EOF'
           plugins {
+
               id "com.android.application" version "8.2.2" apply false
+
+              id "org.jetbrains.kotlin.android" version "1.9.24" apply false
+
           }
           EOF
 
-          # -----------------------------------------------------
-          # MANIFEST
-          # -----------------------------------------------------
+          # ======================================================
+          # ANDROID MANIFEST
+          # ======================================================
 
           if [ -f "AndroidManifest.xml" ]; then
 
-              cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+            cp AndroidManifest.xml \
+              app/src/main/AndroidManifest.xml
+
+          elif [ -f "src/main/AndroidManifest.xml" ]; then
+
+            cp src/main/AndroidManifest.xml \
+              app/src/main/AndroidManifest.xml
 
           else
 
-              cat > app/src/main/AndroidManifest.xml <<'EOF'
+            cat > app/src/main/AndroidManifest.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
 
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest
+              xmlns:android="http://schemas.android.com/apk/res/android">
 
               <uses-permission
                   android:name="android.permission.SET_WALLPAPER" />
@@ -196,35 +305,44 @@ jobs:
 
           fi
 
-          # -----------------------------------------------------
+          # ======================================================
           # CLEAN MANIFEST FOR AGP 8+
-          # -----------------------------------------------------
+          # ======================================================
 
-          sed -i 's/package="[^"]*"//g' \
+          if [ -f "app/src/main/AndroidManifest.xml" ]; then
+
+            sed -i 's/package="[^"]*"//g' \
               app/src/main/AndroidManifest.xml
 
-          sed -i 's/assetsPaths//g' \
+            sed -i 's/assetsPaths//g' \
               app/src/main/AndroidManifest.xml
 
-          # -----------------------------------------------------
-          # COPY ORIGINAL SOURCE
-          # -----------------------------------------------------
-
-          if [ -d "src" ]; then
-              cp -r src/* app/src/main/java/ 2>/dev/null || true
           fi
 
-          # -----------------------------------------------------
-          # COPY ORIGINAL RESOURCES
-          # -----------------------------------------------------
+          # ======================================================
+          # FIX StringRes
+          # ======================================================
 
-          if [ -d "res" ]; then
-              cp -r res/* app/src/main/res/ 2>/dev/null || true
-          fi
+          echo ""
+          echo "Fixing StringRes imports..."
 
-          # -----------------------------------------------------
-          # FALLBACK AOSP / SETTINGS LIB RESOURCES
-          # -----------------------------------------------------
+          find app/src/main/java \
+            -type f \
+            -name "*.java" \
+            -print0 |
+          while IFS= read -r -d '' file; do
+
+            sed -i \
+              's/import android\.annotation\.StringRes;/import androidx.annotation.StringRes;/' \
+              "$file"
+
+          done
+
+          # ======================================================
+          # FALLBACK AOSP RESOURCES
+          # ======================================================
+
+          mkdir -p app/src/main/res/values
 
           cat > app/src/main/res/values/aosp_fallbacks.xml <<'EOF'
           <?xml version="1.0" encoding="utf-8"?>
@@ -232,7 +350,7 @@ jobs:
           <resources>
 
               <!-- ================================================= -->
-              <!-- COLORS -->
+              <!-- SETTINGSLIB COLORS -->
               <!-- ================================================= -->
 
               <color name="settingslib_accent_secondary_device_default">
@@ -268,7 +386,7 @@ jobs:
               </color>
 
               <!-- ================================================= -->
-              <!-- DIMENS -->
+              <!-- DIMENSIONS -->
               <!-- ================================================= -->
 
               <dimen name="settingslib_toolbar_layout_height">
@@ -284,14 +402,20 @@ jobs:
               </dimen>
 
               <!-- ================================================= -->
-              <!-- ATTRIBUTES -->
+              <!-- NAVIGATION ATTRIBUTES -->
               <!-- ================================================= -->
 
-              <attr name="defaultNavHost" format="boolean" />
+              <attr
+                  name="defaultNavHost"
+                  format="boolean" />
 
-              <attr name="startDestination" format="reference" />
+              <attr
+                  name="startDestination"
+                  format="reference" />
 
-              <attr name="destination" format="reference" />
+              <attr
+                  name="destination"
+                  format="reference" />
 
               <!-- ================================================= -->
               <!-- COLLAPSING TOOLBAR -->
@@ -312,7 +436,7 @@ jobs:
               </style>
 
               <!-- ================================================= -->
-              <!-- SETTINGS LIB TEXT APPEARANCES -->
+              <!-- SETTINGS LIB TEXT -->
               <!-- ================================================= -->
 
               <style
@@ -336,7 +460,7 @@ jobs:
               </style>
 
               <!-- ================================================= -->
-              <!-- SETTINGS LIB SWITCH -->
+              <!-- SETTINGS SWITCH -->
               <!-- ================================================= -->
 
               <style
@@ -350,7 +474,7 @@ jobs:
               </style>
 
               <!-- ================================================= -->
-              <!-- COLLAPSING TOOLBAR -->
+              <!-- COLLAPSING TITLE -->
               <!-- ================================================= -->
 
               <style
@@ -360,13 +484,17 @@ jobs:
           </resources>
           EOF
 
-          # -----------------------------------------------------
+          # ======================================================
           # APP BUILD.GRADLE
-          # -----------------------------------------------------
+          # ======================================================
 
           cat > app/build.gradle <<'EOF'
           plugins {
+
               id "com.android.application"
+
+              id "org.jetbrains.kotlin.android"
+
           }
 
           android {
@@ -389,6 +517,12 @@ jobs:
 
               }
 
+              buildFeatures {
+
+                  buildConfig true
+
+              }
+
               buildTypes {
 
                   release {
@@ -401,86 +535,222 @@ jobs:
 
               }
 
+              compileOptions {
+
+                  sourceCompatibility JavaVersion.VERSION_17
+
+                  targetCompatibility JavaVersion.VERSION_17
+
+              }
+
+              kotlinOptions {
+
+                  jvmTarget = "17"
+
+              }
+
           }
 
           dependencies {
 
-              // AndroidX core
+              // =================================================
+              // ANDROIDX
+              // =================================================
+
               implementation "androidx.core:core:1.13.1"
 
-              // AppCompat
               implementation "androidx.appcompat:appcompat:1.7.0"
 
-              // Material
-              implementation "com.google.android.material:material:1.12.0"
-
-              // ConstraintLayout
-              implementation "androidx.constraintlayout:constraintlayout:2.1.4"
-
-              // Navigation
-              implementation "androidx.navigation:navigation-fragment:2.7.7"
-              implementation "androidx.navigation:navigation-ui:2.7.7"
-
-              // Fragment
-              implementation "androidx.fragment:fragment:1.8.2"
-
-              // Activity
               implementation "androidx.activity:activity:1.9.1"
 
-              // RecyclerView
+              implementation "androidx.fragment:fragment:1.8.2"
+
               implementation "androidx.recyclerview:recyclerview:1.3.2"
 
-              // ViewPager2
               implementation "androidx.viewpager2:viewpager2:1.1.0"
+
+              implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+
+              // =================================================
+              // MATERIAL
+              // =================================================
+
+              implementation "com.google.android.material:material:1.12.0"
+
+              // =================================================
+              // NAVIGATION
+              // =================================================
+
+              implementation "androidx.navigation:navigation-fragment:2.7.7"
+
+              implementation "androidx.navigation:navigation-ui:2.7.7"
+
+              implementation "androidx.navigation:navigation-runtime:2.7.7"
+
+              // =================================================
+              // GLIDE
+              // =================================================
+
+              implementation "com.github.bumptech.glide:glide:4.16.0"
+
+              annotationProcessor "com.github.bumptech.glide:compiler:4.16.0"
 
           }
           EOF
 
-          echo "=========================================="
-          echo "Project preparation complete"
-          echo "=========================================="
+          # ======================================================
+          # DIAGNOSTICS
+          # ======================================================
 
-      # ---------------------------------------------------------
+          echo ""
+          echo "=================================================="
+          echo "Checking critical WallpaperPicker2 classes"
+          echo "=================================================="
+
+          echo ""
+          echo "--- UserEventLogger ---"
+          find app/src/main/java \
+            -type f \
+            \( -name "UserEventLogger.java" -o -name "UserEventLogger.kt" \) \
+            -print || true
+
+          echo ""
+          echo "--- WallpaperPreferences ---"
+          find app/src/main/java \
+            -type f \
+            \( -name "WallpaperPreferences.java" -o -name "WallpaperPreferences.kt" \) \
+            -print || true
+
+          echo ""
+          echo "--- FloatingSheet ---"
+          find app/src/main/java \
+            -type f \
+            \( -name "FloatingSheet.java" -o -name "FloatingSheet.kt" \) \
+            -print || true
+
+          echo ""
+          echo "--- SystemColors ---"
+          find app/src/main/java \
+            -type f \
+            \( -name "SystemColors.java" -o -name "SystemColors.kt" \) \
+            -print || true
+
+          echo ""
+          echo "--- WallpaperSetter ---"
+          find app/src/main/java \
+            -type f \
+            -name "WallpaperSetter.java" \
+            -print || true
+
+          echo ""
+          echo "--- Java count ---"
+          find app/src/main/java \
+            -type f \
+            -name "*.java" |
+            wc -l
+
+          echo ""
+          echo "--- Kotlin count ---"
+          find app/src/main/java \
+            -type f \
+            -name "*.kt" |
+            wc -l
+
+          echo ""
+          echo "=================================================="
+          echo "Project prepared"
+          echo "=================================================="
+
+      # ==========================================================
       # GRADLE WRAPPER
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Setup Gradle Wrapper
+        shell: bash
         run: |
-          cd source_code
-          gradle wrapper --gradle-version 8.5
 
-      # ---------------------------------------------------------
-      # CLEAN
-      # ---------------------------------------------------------
+          set -e
+
+          cd source_code
+
+          gradle wrapper \
+            --gradle-version 8.5
+
+      # ==========================================================
+      # GRADLE CLEAN
+      # ==========================================================
 
       - name: Clean Gradle
+        shell: bash
         run: |
-          cd source_code
-          ./gradlew clean
 
-      # ---------------------------------------------------------
+          set -e
+
+          cd source_code
+
+          ./gradlew clean \
+            --no-daemon \
+            --stacktrace
+
+      # ==========================================================
       # BUILD
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Build APK with Gradle
+        shell: bash
         run: |
+
+          set -e
+
           cd source_code
 
           ./gradlew \
             :app:assembleRelease \
+            --no-daemon \
             --stacktrace \
             --info
 
-      # ---------------------------------------------------------
+      # ==========================================================
+      # VERIFY APK EXISTS
+      # ==========================================================
+
+      - name: Verify generated APK
+        shell: bash
+        run: |
+
+          set -e
+
+          APK="source_code/app/build/outputs/apk/release/app-release-unsigned.apk"
+
+          if [ ! -f "$APK" ]; then
+
+            echo "ERROR: APK was not generated."
+
+            find source_code/app/build \
+              -type f \
+              -name "*.apk" \
+              -print || true
+
+            exit 1
+
+          fi
+
+          echo "APK found:"
+          ls -lh "$APK"
+
+      # ==========================================================
       # SIGN APK
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Sign APK
+        shell: bash
         run: |
 
           set -e
 
           cd source_code/app/build/outputs/apk/release
+
+          echo "Generating debug keystore..."
 
           keytool \
             -genkeypair \
@@ -494,33 +764,44 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
 
+          echo "Signing APK..."
+
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
             --ks debug.keystore \
             --ks-pass pass:android \
             --out WallpaperPicker2-signed.apk \
             app-release-unsigned.apk
 
+          echo "Verifying signature..."
+
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify \
             --verbose \
             WallpaperPicker2-signed.apk
 
-      # ---------------------------------------------------------
+          echo ""
+          echo "Signed APK:"
+          ls -lh WallpaperPicker2-signed.apk
+
+      # ==========================================================
       # GENERATE RELEASE NAME
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Generate Timestamp and Tag Name
         id: timestamp
+        shell: bash
         run: |
 
           BUILD_DATE=$(date +'%Y%m%d-%H%M')
 
-          echo "TAG_NAME=Wallpaper2-Build-${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+          echo "TAG_NAME=Wallpaper2-Build-${BUILD_DATE}" \
+            >> "$GITHUB_OUTPUT"
 
-          echo "RELEASE_NAME=Wallpaper2-Build-${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+          echo "RELEASE_NAME=Wallpaper2-Build-${BUILD_DATE}" \
+            >> "$GITHUB_OUTPUT"
 
-      # ---------------------------------------------------------
+      # ==========================================================
       # GITHUB RELEASE
-      # ---------------------------------------------------------
+      # ==========================================================
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -534,6 +815,8 @@ jobs:
           draft: false
 
           prerelease: false
+
+          generate_release_notes: true
 
           files: |
             source_code/app/build/outputs/apk/release/WallpaperPicker2-signed.apk
