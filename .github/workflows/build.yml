@@ -1,4 +1,4 @@
-# Version: 5
+# Version: 6
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
@@ -13,6 +13,7 @@
 # - Solución al error AndroidXDependencyCheck: Inyección de gradle.properties habilitando android.useAndroidX=true y android.enableJetifier=true.
 # - Solución al error ProcessApplicationManifest: Búsqueda dinámica o generación fallback de AndroidManifest.xml compatible con SET_WALLPAPER.
 # - Corrección de sintaxis YAML en línea 88: Eliminación de bloques heredoc anidados multilínea y creación segura del Manifest vía echo.
+# - Solución al error ProcessApplicationManifest (package attribute AGP 8+): Limpieza de 'package="..."' mediante sed en AndroidManifest.xml.
 
 name: Build AOSP WallpaperPicker2
 
@@ -65,7 +66,7 @@ jobs:
             cp AndroidManifest.xml app/src/main/AndroidManifest.xml
         else
             echo '<?xml version="1.0" encoding="utf-8"?>' > app/src/main/AndroidManifest.xml
-            echo '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.android.wallpaper">' >> app/src/main/AndroidManifest.xml
+            echo '<manifest xmlns:android="http://schemas.android.com/apk/res/android">' >> app/src/main/AndroidManifest.xml
             echo '    <uses-permission android:name="android.permission.SET_WALLPAPER" />' >> app/src/main/AndroidManifest.xml
             echo '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' >> app/src/main/AndroidManifest.xml
             echo '    <application android:allowBackup="true" android:label="Fondos AOSP" android:supportsRtl="true" android:theme="@style/Theme.AppCompat.Light.NoActionBar">' >> app/src/main/AndroidManifest.xml
@@ -82,6 +83,8 @@ jobs:
             echo '    </application>' >> app/src/main/AndroidManifest.xml
             echo '</manifest>' >> app/src/main/AndroidManifest.xml
         fi
+
+        sed -i 's/package="[^"]*"//g' app/src/main/AndroidManifest.xml
 
         [ -d "src" ] && cp -r src/* app/src/main/java/ 2>/dev/null || true
         [ -d "res" ] && cp -r res/* app/src/main/res/ 2>/dev/null || true
