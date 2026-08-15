@@ -1,4 +1,4 @@
-# Version: 4
+# Version: 5
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
@@ -12,6 +12,7 @@
 # - Adjuntado automático del archivo APK firmado directamente a la Release pública.
 # - Solución al error AndroidXDependencyCheck: Inyección de gradle.properties habilitando android.useAndroidX=true y android.enableJetifier=true.
 # - Solución al error ProcessApplicationManifest: Búsqueda dinámica o generación fallback de AndroidManifest.xml compatible con SET_WALLPAPER.
+# - Corrección de sintaxis YAML en línea 88: Eliminación de bloques heredoc anidados multilínea y creación segura del Manifest vía echo.
 
 name: Build AOSP WallpaperPicker2
 
@@ -43,113 +44,60 @@ jobs:
       run: |
         git clone https://android.googlesource.com/platform/packages/apps/WallpaperPicker2 source_code
 
-    - name: Generate Gradle Structure
+    - name: Setup Project Structure and Manifest
       run: |
         cd source_code
+        
+        echo "android.useAndroidX=true" > gradle.properties
+        echo "android.enableJetifier=true" >> gradle.properties
 
-        cat << 'EOF' > gradle.properties
-        android.useAndroidX=true
-        android.enableJetifier=true
-        EOF
+        echo "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }" > settings.gradle
+        echo "dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }" >> settings.gradle
+        echo "rootProject.name = 'WallpaperPicker2'" >> settings.gradle
+        echo "include ':app'" >> settings.gradle
 
-        cat << 'EOF' > settings.gradle
-        pluginManagement {
-            repositories {
-                google()
-                mavenCentral()
-                gradlePluginPortal()
-            }
-        }
-        dependencyResolutionManagement {
-            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-            repositories {
-                google()
-                mavenCentral()
-            }
-        }
-        rootProject.name = "WallpaperPicker2"
-        include ':app'
-        EOF
+        echo "plugins { id 'com.android.application' version '8.2.2' apply false }" > build.gradle
 
-        cat << 'EOF' > build.gradle
-        plugins {
-            id 'com.android.application' version '8.2.2' apply false
-        }
-        EOF
-
-        mkdir -p app/src/main
+        mkdir -p app/src/main/java
+        mkdir -p app/src/main/res
 
         if [ -f "AndroidManifest.xml" ]; then
             cp AndroidManifest.xml app/src/main/AndroidManifest.xml
-        elif [ -f "AndroidManifest-common.xml" ]; then
-            cp AndroidManifest-common.xml app/src/main/AndroidManifest.xml
         else
-            cat << 'EOF2' > app/src/main/AndroidManifest.xml
-<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.android.wallpaper">
-
-    <uses-permission android:name="android.permission.SET_WALLPAPER" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-
-    <application
-        android:allowBackup="true"
-        android:label="Fondos de pantalla AOSP"
-        android:supportsRtl="true"
-        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-
-        <activity
-            android:name=".TopLevelPickerActivity"
-            android:exported="true"
-            android:label="Fondos de pantalla">
-            <intent-filter>
-                <action android:name="android.intent.action.SET_WALLPAPER" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
-
-    </application>
-</manifest>
-EOF2
+            echo '<?xml version="1.0" encoding="utf-8"?>' > app/src/main/AndroidManifest.xml
+            echo '<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.android.wallpaper">' >> app/src/main/AndroidManifest.xml
+            echo '    <uses-permission android:name="android.permission.SET_WALLPAPER" />' >> app/src/main/AndroidManifest.xml
+            echo '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' >> app/src/main/AndroidManifest.xml
+            echo '    <application android:allowBackup="true" android:label="Fondos AOSP" android:supportsRtl="true" android:theme="@style/Theme.AppCompat.Light.NoActionBar">' >> app/src/main/AndroidManifest.xml
+            echo '        <activity android:name=".TopLevelPickerActivity" android:exported="true" android:label="Fondos de pantalla">' >> app/src/main/AndroidManifest.xml
+            echo '            <intent-filter>' >> app/src/main/AndroidManifest.xml
+            echo '                <action android:name="android.intent.action.SET_WALLPAPER" />' >> app/src/main/AndroidManifest.xml
+            echo '                <category android:name="android.intent.category.DEFAULT" />' >> app/src/main/AndroidManifest.xml
+            echo '            </intent-filter>' >> app/src/main/AndroidManifest.xml
+            echo '            <intent-filter>' >> app/src/main/AndroidManifest.xml
+            echo '                <action android:name="android.intent.action.MAIN" />' >> app/src/main/AndroidManifest.xml
+            echo '                <category android:name="android.intent.category.LAUNCHER" />' >> app/src/main/AndroidManifest.xml
+            echo '            </intent-filter>' >> app/src/main/AndroidManifest.xml
+            echo '        </activity>' >> app/src/main/AndroidManifest.xml
+            echo '    </application>' >> app/src/main/AndroidManifest.xml
+            echo '</manifest>' >> app/src/main/AndroidManifest.xml
         fi
 
-        mv src app/src/main/java 2>/dev/null || true
-        mv res app/src/main/res 2>/dev/null || true
+        [ -d "src" ] && cp -r src/* app/src/main/java/ 2>/dev/null || true
+        [ -d "res" ] && cp -r res/* app/src/main/res/ 2>/dev/null || true
 
-        cat << 'EOF' > app/build.gradle
-        plugins {
-            id 'com.android.application'
-        }
-
-        android {
-            namespace 'com.android.wallpaper'
-            compileSdk 34
-
-            defaultConfig {
-                applicationId "com.android.wallpaper"
-                minSdk 28
-                targetSdk 34
-                versionCode 1
-                versionName "1.0"
-            }
-
-            buildTypes {
-                release {
-                    minifyEnabled false
-                }
-            }
-        }
-
-        dependencies {
-            implementation 'androidx.appcompat:appcompat:1.6.1'
-            implementation 'com.google.android.material:material:1.11.0'
-            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-        }
-        EOF
+        echo "plugins { id 'com.android.application' }" > app/build.gradle
+        echo "android {" >> app/build.gradle
+        echo "    namespace 'com.android.wallpaper'" >> app/build.gradle
+        echo "    compileSdk 34" >> app/build.gradle
+        echo "    defaultConfig { applicationId 'com.android.wallpaper'; minSdk 28; targetSdk 34; versionCode 1; versionName '1.0' }" >> app/build.gradle
+        echo "    buildTypes { release { minifyEnabled false } }" >> app/build.gradle
+        echo "}" >> app/build.gradle
+        echo "dependencies {" >> app/build.gradle
+        echo "    implementation 'androidx.appcompat:appcompat:1.6.1'" >> app/build.gradle
+        echo "    implementation 'com.google.android.material:material:1.11.0'" >> app/build.gradle
+        echo "    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'" >> app/build.gradle
+        echo "}" >> app/build.gradle
 
     - name: Setup Gradle Wrapper
       run: |
