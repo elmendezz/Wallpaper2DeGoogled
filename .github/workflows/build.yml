@@ -1,4 +1,4 @@
-# Version: 7
+# Version: 8
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
@@ -15,6 +15,7 @@
 # - Corrección de sintaxis YAML en línea 88: Eliminación de bloques heredoc anidados multilínea y creación segura del Manifest vía echo.
 # - Solución al error ProcessApplicationManifest (package attribute AGP 8+): Limpieza de 'package="..."' mediante sed en AndroidManifest.xml.
 # - Solución al error processReleaseResources (AAPT2 missing SettingsLib resources): Inyección de missing_aosp_resources.xml con colores, dimensiones y estilos fallback requeridos por AOSP.
+# - Solución al error AAPT configChanges: Limpieza automática de la flag privada 'assetsPaths' en AndroidManifest.xml mediante sed.
 
 name: Build AOSP WallpaperPicker2
 
@@ -85,7 +86,11 @@ jobs:
             echo '</manifest>' >> app/src/main/AndroidManifest.xml
         fi
 
+        # Eliminar atributo package inútil para AGP 8+ y remover la flag privada assetsPaths que causa fallo en AAPT2
         sed -i 's/package="[^"]*"//g' app/src/main/AndroidManifest.xml
+        sed -i 's/assetsPaths|//g' app/src/main/AndroidManifest.xml
+        sed -i 's/|assetsPaths//g' app/src/main/AndroidManifest.xml
+        sed -i 's/assetsPaths//g' app/src/main/AndroidManifest.xml
 
         [ -d "src" ] && cp -r src/* app/src/main/java/ 2>/dev/null || true
         [ -d "res" ] && cp -r res/* app/src/main/res/ 2>/dev/null || true
