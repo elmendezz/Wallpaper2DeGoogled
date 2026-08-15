@@ -1,4 +1,4 @@
-# Version: 6
+# Version: 7
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
@@ -14,6 +14,7 @@
 # - Solución al error ProcessApplicationManifest: Búsqueda dinámica o generación fallback de AndroidManifest.xml compatible con SET_WALLPAPER.
 # - Corrección de sintaxis YAML en línea 88: Eliminación de bloques heredoc anidados multilínea y creación segura del Manifest vía echo.
 # - Solución al error ProcessApplicationManifest (package attribute AGP 8+): Limpieza de 'package="..."' mediante sed en AndroidManifest.xml.
+# - Solución al error processReleaseResources (AAPT2 missing SettingsLib resources): Inyección de missing_aosp_resources.xml con colores, dimensiones y estilos fallback requeridos por AOSP.
 
 name: Build AOSP WallpaperPicker2
 
@@ -60,7 +61,7 @@ jobs:
         echo "plugins { id 'com.android.application' version '8.2.2' apply false }" > build.gradle
 
         mkdir -p app/src/main/java
-        mkdir -p app/src/main/res
+        mkdir -p app/src/main/res/values
 
         if [ -f "AndroidManifest.xml" ]; then
             cp AndroidManifest.xml app/src/main/AndroidManifest.xml
@@ -88,6 +89,20 @@ jobs:
 
         [ -d "src" ] && cp -r src/* app/src/main/java/ 2>/dev/null || true
         [ -d "res" ] && cp -r res/* app/src/main/res/ 2>/dev/null || true
+
+        echo '<?xml version="1.0" encoding="utf-8"?>' > app/src/main/res/values/missing_aosp_resources.xml
+        echo '<resources>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_accent_secondary_device_default">#6200EE</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_colorSurface">#FFFFFF</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_colorSurfaceVariant">#F5F5F5</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_text_color_primary">#000000</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_text_color_secondary">#666666</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_text_color_secondary_device_default">#666666</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_colorSurfaceHeader">#EEEEEE</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <color name="settingslib_text_color_primary_device_default">#000000</color>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <dimen name="settingslib_toolbar_layout_height">56dp</dimen>' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '    <style name="CollapsingToolbarTitle.Collapsed" parent="TextAppearance.AppCompat.Widget.ActionBar.Title" />' >> app/src/main/res/values/missing_aosp_resources.xml
+        echo '</resources>' >> app/src/main/res/values/missing_aosp_resources.xml
 
         echo "plugins { id 'com.android.application' }" > app/build.gradle
         echo "android {" >> app/build.gradle
