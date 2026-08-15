@@ -1,4 +1,4 @@
-# Version: 3
+# Version: 4
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
@@ -11,6 +11,7 @@
 # - Adición de generación automática de tag y release en GitHub con formato Wallpaper2-Build-YYYYMMDD-HHMM.
 # - Adjuntado automático del archivo APK firmado directamente a la Release pública.
 # - Solución al error AndroidXDependencyCheck: Inyección de gradle.properties habilitando android.useAndroidX=true y android.enableJetifier=true.
+# - Solución al error ProcessApplicationManifest: Búsqueda dinámica o generación fallback de AndroidManifest.xml compatible con SET_WALLPAPER.
 
 name: Build AOSP WallpaperPicker2
 
@@ -76,8 +77,48 @@ jobs:
         }
         EOF
 
-        mkdir -p app
-        mv src Android.bp app/ 2>/dev/null || true
+        mkdir -p app/src/main
+
+        if [ -f "AndroidManifest.xml" ]; then
+            cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+        elif [ -f "AndroidManifest-common.xml" ]; then
+            cp AndroidManifest-common.xml app/src/main/AndroidManifest.xml
+        else
+            cat << 'EOF2' > app/src/main/AndroidManifest.xml
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.android.wallpaper">
+
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <application
+        android:allowBackup="true"
+        android:label="Fondos de pantalla AOSP"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+        <activity
+            android:name=".TopLevelPickerActivity"
+            android:exported="true"
+            android:label="Fondos de pantalla">
+            <intent-filter>
+                <action android:name="android.intent.action.SET_WALLPAPER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+    </application>
+</manifest>
+EOF2
+        fi
+
+        mv src app/src/main/java 2>/dev/null || true
+        mv res app/src/main/res 2>/dev/null || true
 
         cat << 'EOF' > app/build.gradle
         plugins {
@@ -99,14 +140,6 @@ jobs:
             buildTypes {
                 release {
                     minifyEnabled false
-                }
-            }
-            
-            sourceSets {
-                main {
-                    manifest.srcFile 'AndroidManifest.xml'
-                    java.srcDirs = ['src']
-                    res.srcDirs = ['res']
                 }
             }
         }
