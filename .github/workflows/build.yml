@@ -1,158 +1,543 @@
-# Version: 8
+# Version: 9
 # ChangeLog:
-# - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
-# - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
-# - Inyección de configuración Gradle básica (settings.gradle, build.gradle, wrapper).
-# - Automatización de compilación de APK en modo Release/Unsigned.
-# - Carga del APK resultante a los artifacts de GitHub Actions.
-# - Corrección de error de Gradle 9.x: Inyección del bloque pluginManagement y definición de versión de com.android.application (8.2.2).
-# - Inyección de repositorios google() y mavenCentral() en settings.gradle y build.gradle.
-# - Adición de paso de firmado de APK usando apksigner con keystore de depuración.
-# - Adición de generación automática de tag y release en GitHub con formato Wallpaper2-Build-YYYYMMDD-HHMM.
-# - Adjuntado automático del archivo APK firmado directamente a la Release pública.
-# - Solución al error AndroidXDependencyCheck: Inyección de gradle.properties habilitando android.useAndroidX=true y android.enableJetifier=true.
-# - Solución al error ProcessApplicationManifest: Búsqueda dinámica o generación fallback de AndroidManifest.xml compatible con SET_WALLPAPER.
-# - Corrección de sintaxis YAML en línea 88: Eliminación de bloques heredoc anidados multilínea y creación segura del Manifest vía echo.
-# - Solución al error ProcessApplicationManifest (package attribute AGP 8+): Limpieza de 'package="..."' mediante sed en AndroidManifest.xml.
-# - Solución al error processReleaseResources (AAPT2 missing SettingsLib resources): Inyección de missing_aosp_resources.xml con colores, dimensiones y estilos fallback requeridos por AOSP.
-# - Solución al error AAPT configChanges: Limpieza automática de la flag privada 'assetsPaths' en AndroidManifest.xml mediante sed.
+# - Añadido AndroidX Navigation para resolver defaultNavHost/startDestination/destination.
+# - Añadidos fallbacks de SettingsLib requeridos por WallpaperPicker2.
+# - Añadidos estilos, dimensiones, atributos y colores AOSP faltantes.
+# - Conservada compilación Release + firmado + GitHub Release.
+# - Corregida limpieza de package="..." para AGP 8+.
+# - Corregida limpieza de assetsPaths.
+# - Aumentada compatibilidad con layouts originales de WallpaperPicker2.
 
 name: Build AOSP WallpaperPicker2
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches:
+      - main
+      - master
+
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
     steps:
-    - name: Checkout local repository
-      uses: actions/checkout@v4
 
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
+      # ---------------------------------------------------------
+      # CHECKOUT
+      # ---------------------------------------------------------
 
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v3
+      - name: Checkout local repository
+        uses: actions/checkout@v4
 
-    - name: Clone AOSP WallpaperPicker2
-      run: |
-        git clone https://android.googlesource.com/platform/packages/apps/WallpaperPicker2 source_code
+      # ---------------------------------------------------------
+      # JAVA
+      # ---------------------------------------------------------
 
-    - name: Setup Project Structure and Manifest
-      run: |
-        cd source_code
-        
-        echo "android.useAndroidX=true" > gradle.properties
-        echo "android.enableJetifier=true" >> gradle.properties
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
 
-        echo "pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }" > settings.gradle
-        echo "dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }" >> settings.gradle
-        echo "rootProject.name = 'WallpaperPicker2'" >> settings.gradle
-        echo "include ':app'" >> settings.gradle
+      # ---------------------------------------------------------
+      # ANDROID SDK
+      # ---------------------------------------------------------
 
-        echo "plugins { id 'com.android.application' version '8.2.2' apply false }" > build.gradle
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-        mkdir -p app/src/main/java
-        mkdir -p app/src/main/res/values
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-34"
+          sdkmanager "build-tools;34.0.0"
 
-        if [ -f "AndroidManifest.xml" ]; then
-            cp AndroidManifest.xml app/src/main/AndroidManifest.xml
-        else
-            echo '<?xml version="1.0" encoding="utf-8"?>' > app/src/main/AndroidManifest.xml
-            echo '<manifest xmlns:android="http://schemas.android.com/apk/res/android">' >> app/src/main/AndroidManifest.xml
-            echo '    <uses-permission android:name="android.permission.SET_WALLPAPER" />' >> app/src/main/AndroidManifest.xml
-            echo '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />' >> app/src/main/AndroidManifest.xml
-            echo '    <application android:allowBackup="true" android:label="Fondos AOSP" android:supportsRtl="true" android:theme="@style/Theme.AppCompat.Light.NoActionBar">' >> app/src/main/AndroidManifest.xml
-            echo '        <activity android:name=".TopLevelPickerActivity" android:exported="true" android:label="Fondos de pantalla">' >> app/src/main/AndroidManifest.xml
-            echo '            <intent-filter>' >> app/src/main/AndroidManifest.xml
-            echo '                <action android:name="android.intent.action.SET_WALLPAPER" />' >> app/src/main/AndroidManifest.xml
-            echo '                <category android:name="android.intent.category.DEFAULT" />' >> app/src/main/AndroidManifest.xml
-            echo '            </intent-filter>' >> app/src/main/AndroidManifest.xml
-            echo '            <intent-filter>' >> app/src/main/AndroidManifest.xml
-            echo '                <action android:name="android.intent.action.MAIN" />' >> app/src/main/AndroidManifest.xml
-            echo '                <category android:name="android.intent.category.LAUNCHER" />' >> app/src/main/AndroidManifest.xml
-            echo '            </intent-filter>' >> app/src/main/AndroidManifest.xml
-            echo '        </activity>' >> app/src/main/AndroidManifest.xml
-            echo '    </application>' >> app/src/main/AndroidManifest.xml
-            echo '</manifest>' >> app/src/main/AndroidManifest.xml
-        fi
+      # ---------------------------------------------------------
+      # CLONE AOSP WALLPAPERPICKER2
+      # ---------------------------------------------------------
 
-        # Eliminar atributo package inútil para AGP 8+ y remover la flag privada assetsPaths que causa fallo en AAPT2
-        sed -i 's/package="[^"]*"//g' app/src/main/AndroidManifest.xml
-        sed -i 's/assetsPaths|//g' app/src/main/AndroidManifest.xml
-        sed -i 's/|assetsPaths//g' app/src/main/AndroidManifest.xml
-        sed -i 's/assetsPaths//g' app/src/main/AndroidManifest.xml
+      - name: Clone AOSP WallpaperPicker2
+        run: |
+          git clone --depth=1 \
+            https://android.googlesource.com/platform/packages/apps/WallpaperPicker2 \
+            source_code
 
-        [ -d "src" ] && cp -r src/* app/src/main/java/ 2>/dev/null || true
-        [ -d "res" ] && cp -r res/* app/src/main/res/ 2>/dev/null || true
+      # ---------------------------------------------------------
+      # PREPARE PROJECT
+      # ---------------------------------------------------------
 
-        echo '<?xml version="1.0" encoding="utf-8"?>' > app/src/main/res/values/missing_aosp_resources.xml
-        echo '<resources>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_accent_secondary_device_default">#6200EE</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_colorSurface">#FFFFFF</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_colorSurfaceVariant">#F5F5F5</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_text_color_primary">#000000</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_text_color_secondary">#666666</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_text_color_secondary_device_default">#666666</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_colorSurfaceHeader">#EEEEEE</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <color name="settingslib_text_color_primary_device_default">#000000</color>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <dimen name="settingslib_toolbar_layout_height">56dp</dimen>' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '    <style name="CollapsingToolbarTitle.Collapsed" parent="TextAppearance.AppCompat.Widget.ActionBar.Title" />' >> app/src/main/res/values/missing_aosp_resources.xml
-        echo '</resources>' >> app/src/main/res/values/missing_aosp_resources.xml
+      - name: Setup Project Structure and Resources
+        shell: bash
+        run: |
 
-        echo "plugins { id 'com.android.application' }" > app/build.gradle
-        echo "android {" >> app/build.gradle
-        echo "    namespace 'com.android.wallpaper'" >> app/build.gradle
-        echo "    compileSdk 34" >> app/build.gradle
-        echo "    defaultConfig { applicationId 'com.android.wallpaper'; minSdk 28; targetSdk 34; versionCode 1; versionName '1.0' }" >> app/build.gradle
-        echo "    buildTypes { release { minifyEnabled false } }" >> app/build.gradle
-        echo "}" >> app/build.gradle
-        echo "dependencies {" >> app/build.gradle
-        echo "    implementation 'androidx.appcompat:appcompat:1.6.1'" >> app/build.gradle
-        echo "    implementation 'com.google.android.material:material:1.11.0'" >> app/build.gradle
-        echo "    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'" >> app/build.gradle
-        echo "}" >> app/build.gradle
+          set -e
 
-    - name: Setup Gradle Wrapper
-      run: |
-        cd source_code
-        gradle wrapper --gradle-version 8.5
+          cd source_code
 
-    - name: Build APK with Gradle
-      run: |
-        cd source_code
-        ./gradlew :app:assembleRelease --stacktrace
+          echo "=========================================="
+          echo "Preparing WallpaperPicker2"
+          echo "=========================================="
 
-    - name: Sign APK
-      run: |
-        cd source_code/app/build/outputs/apk/release/
-        keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-        $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks debug.keystore --ks-pass pass:android --out WallpaperPicker2-signed.apk app-release-unsigned.apk
+          mkdir -p app/src/main/java
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/values-night
 
-    - name: Generate Timestamp and Tag Name
-      id: timestamp
-      run: |
-        BUILD_DATE=$(date +'%Y%m%d-%H%M')
-        echo "TAG_NAME=Wallpaper2-Build-${BUILD_DATE}" >> $GITHUB_OUTPUT
-        echo "RELEASE_NAME=Wallpaper2-Build-${BUILD_DATE}" >> $GITHUB_OUTPUT
+          # -----------------------------------------------------
+          # GRADLE PROPERTIES
+          # -----------------------------------------------------
 
-    - name: Create GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.timestamp.outputs.TAG_NAME }}
-        name: ${{ steps.timestamp.outputs.RELEASE_NAME }}
-        draft: false
-        prerelease: false
-        files: |
-          source_code/app/build/outputs/apk/release/WallpaperPicker2-signed.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8
+          android.nonTransitiveRClass=false
+          EOF
+
+          # -----------------------------------------------------
+          # SETTINGS.GRADLE
+          # -----------------------------------------------------
+
+          cat > settings.gradle <<'EOF'
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+
+          rootProject.name = "WallpaperPicker2"
+
+          include(":app")
+          EOF
+
+          # -----------------------------------------------------
+          # ROOT BUILD.GRADLE
+          # -----------------------------------------------------
+
+          cat > build.gradle <<'EOF'
+          plugins {
+              id "com.android.application" version "8.2.2" apply false
+          }
+          EOF
+
+          # -----------------------------------------------------
+          # MANIFEST
+          # -----------------------------------------------------
+
+          if [ -f "AndroidManifest.xml" ]; then
+
+              cp AndroidManifest.xml app/src/main/AndroidManifest.xml
+
+          else
+
+              cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission
+                  android:name="android.permission.SET_WALLPAPER" />
+
+              <uses-permission
+                  android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="Fondos AOSP"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+                  <activity
+                      android:name=".TopLevelPickerActivity"
+                      android:exported="true"
+                      android:label="Fondos de pantalla">
+
+                      <intent-filter>
+
+                          <action
+                              android:name="android.intent.action.SET_WALLPAPER" />
+
+                          <category
+                              android:name="android.intent.category.DEFAULT" />
+
+                      </intent-filter>
+
+                      <intent-filter>
+
+                          <action
+                              android:name="android.intent.action.MAIN" />
+
+                          <category
+                              android:name="android.intent.category.LAUNCHER" />
+
+                      </intent-filter>
+
+                  </activity>
+
+              </application>
+
+          </manifest>
+          EOF
+
+          fi
+
+          # -----------------------------------------------------
+          # CLEAN MANIFEST FOR AGP 8+
+          # -----------------------------------------------------
+
+          sed -i 's/package="[^"]*"//g' \
+              app/src/main/AndroidManifest.xml
+
+          sed -i 's/assetsPaths//g' \
+              app/src/main/AndroidManifest.xml
+
+          # -----------------------------------------------------
+          # COPY ORIGINAL SOURCE
+          # -----------------------------------------------------
+
+          if [ -d "src" ]; then
+              cp -r src/* app/src/main/java/ 2>/dev/null || true
+          fi
+
+          # -----------------------------------------------------
+          # COPY ORIGINAL RESOURCES
+          # -----------------------------------------------------
+
+          if [ -d "res" ]; then
+              cp -r res/* app/src/main/res/ 2>/dev/null || true
+          fi
+
+          # -----------------------------------------------------
+          # FALLBACK AOSP / SETTINGS LIB RESOURCES
+          # -----------------------------------------------------
+
+          cat > app/src/main/res/values/aosp_fallbacks.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+
+          <resources>
+
+              <!-- ================================================= -->
+              <!-- COLORS -->
+              <!-- ================================================= -->
+
+              <color name="settingslib_accent_secondary_device_default">
+                  #6200EE
+              </color>
+
+              <color name="settingslib_colorSurface">
+                  #FFFFFF
+              </color>
+
+              <color name="settingslib_colorSurfaceVariant">
+                  #F5F5F5
+              </color>
+
+              <color name="settingslib_colorSurfaceHeader">
+                  #EEEEEE
+              </color>
+
+              <color name="settingslib_text_color_primary">
+                  #000000
+              </color>
+
+              <color name="settingslib_text_color_secondary">
+                  #666666
+              </color>
+
+              <color name="settingslib_text_color_secondary_device_default">
+                  #666666
+              </color>
+
+              <color name="settingslib_text_color_primary_device_default">
+                  #000000
+              </color>
+
+              <!-- ================================================= -->
+              <!-- DIMENS -->
+              <!-- ================================================= -->
+
+              <dimen name="settingslib_toolbar_layout_height">
+                  56dp
+              </dimen>
+
+              <dimen name="expanded_title_margin_end">
+                  16dp
+              </dimen>
+
+              <dimen name="settingslib_scrim_visible_height_trigger">
+                  0dp
+              </dimen>
+
+              <!-- ================================================= -->
+              <!-- ATTRIBUTES -->
+              <!-- ================================================= -->
+
+              <attr name="defaultNavHost" format="boolean" />
+
+              <attr name="startDestination" format="reference" />
+
+              <attr name="destination" format="reference" />
+
+              <!-- ================================================= -->
+              <!-- COLLAPSING TOOLBAR -->
+              <!-- ================================================= -->
+
+              <style
+                  name="Theme.CollapsingToolbar.Settings"
+                  parent="Theme.MaterialComponents.DayNight.NoActionBar">
+
+                  <item name="android:windowActionModeOverlay">
+                      true
+                  </item>
+
+                  <item name="android:colorAccent">
+                      @color/settingslib_accent_secondary_device_default
+                  </item>
+
+              </style>
+
+              <!-- ================================================= -->
+              <!-- SETTINGS LIB TEXT APPEARANCES -->
+              <!-- ================================================= -->
+
+              <style
+                  name="SettingsLibTextAppearance.Primary.Headline.Large"
+                  parent="TextAppearance.MaterialComponents.Headline5">
+
+                  <item name="android:textColor">
+                      @color/settingslib_text_color_primary
+                  </item>
+
+              </style>
+
+              <style
+                  name="SettingsLibTextAppearance.Primary.Title.Small"
+                  parent="TextAppearance.MaterialComponents.Subtitle1">
+
+                  <item name="android:textColor">
+                      @color/settingslib_text_color_primary
+                  </item>
+
+              </style>
+
+              <!-- ================================================= -->
+              <!-- SETTINGS LIB SWITCH -->
+              <!-- ================================================= -->
+
+              <style
+                  name="Switch.SettingsLib"
+                  parent="Widget.MaterialComponents.CompoundButton.Switch">
+
+                  <item name="android:minWidth">
+                      48dp
+                  </item>
+
+              </style>
+
+              <!-- ================================================= -->
+              <!-- COLLAPSING TOOLBAR -->
+              <!-- ================================================= -->
+
+              <style
+                  name="CollapsingToolbarTitle.Collapsed"
+                  parent="TextAppearance.MaterialComponents.Headline6" />
+
+          </resources>
+          EOF
+
+          # -----------------------------------------------------
+          # APP BUILD.GRADLE
+          # -----------------------------------------------------
+
+          cat > app/build.gradle <<'EOF'
+          plugins {
+              id "com.android.application"
+          }
+
+          android {
+
+              namespace "com.android.wallpaper"
+
+              compileSdk 34
+
+              defaultConfig {
+
+                  applicationId "com.android.wallpaper"
+
+                  minSdk 28
+
+                  targetSdk 34
+
+                  versionCode 1
+
+                  versionName "1.0"
+
+              }
+
+              buildTypes {
+
+                  release {
+
+                      minifyEnabled false
+
+                      shrinkResources false
+
+                  }
+
+              }
+
+          }
+
+          dependencies {
+
+              // AndroidX core
+              implementation "androidx.core:core:1.13.1"
+
+              // AppCompat
+              implementation "androidx.appcompat:appcompat:1.7.0"
+
+              // Material
+              implementation "com.google.android.material:material:1.12.0"
+
+              // ConstraintLayout
+              implementation "androidx.constraintlayout:constraintlayout:2.1.4"
+
+              // Navigation
+              implementation "androidx.navigation:navigation-fragment:2.7.7"
+              implementation "androidx.navigation:navigation-ui:2.7.7"
+
+              // Fragment
+              implementation "androidx.fragment:fragment:1.8.2"
+
+              // Activity
+              implementation "androidx.activity:activity:1.9.1"
+
+              // RecyclerView
+              implementation "androidx.recyclerview:recyclerview:1.3.2"
+
+              // ViewPager2
+              implementation "androidx.viewpager2:viewpager2:1.1.0"
+
+          }
+          EOF
+
+          echo "=========================================="
+          echo "Project preparation complete"
+          echo "=========================================="
+
+      # ---------------------------------------------------------
+      # GRADLE WRAPPER
+      # ---------------------------------------------------------
+
+      - name: Setup Gradle Wrapper
+        run: |
+          cd source_code
+          gradle wrapper --gradle-version 8.5
+
+      # ---------------------------------------------------------
+      # CLEAN
+      # ---------------------------------------------------------
+
+      - name: Clean Gradle
+        run: |
+          cd source_code
+          ./gradlew clean
+
+      # ---------------------------------------------------------
+      # BUILD
+      # ---------------------------------------------------------
+
+      - name: Build APK with Gradle
+        run: |
+          cd source_code
+
+          ./gradlew \
+            :app:assembleRelease \
+            --stacktrace \
+            --info
+
+      # ---------------------------------------------------------
+      # SIGN APK
+      # ---------------------------------------------------------
+
+      - name: Sign APK
+        run: |
+
+          set -e
+
+          cd source_code/app/build/outputs/apk/release
+
+          keytool \
+            -genkeypair \
+            -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" sign \
+            --ks debug.keystore \
+            --ks-pass pass:android \
+            --out WallpaperPicker2-signed.apk \
+            app-release-unsigned.apk
+
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify \
+            --verbose \
+            WallpaperPicker2-signed.apk
+
+      # ---------------------------------------------------------
+      # GENERATE RELEASE NAME
+      # ---------------------------------------------------------
+
+      - name: Generate Timestamp and Tag Name
+        id: timestamp
+        run: |
+
+          BUILD_DATE=$(date +'%Y%m%d-%H%M')
+
+          echo "TAG_NAME=Wallpaper2-Build-${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+
+          echo "RELEASE_NAME=Wallpaper2-Build-${BUILD_DATE}" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------
+      # GITHUB RELEASE
+      # ---------------------------------------------------------
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+
+        with:
+
+          tag_name: ${{ steps.timestamp.outputs.TAG_NAME }}
+
+          name: ${{ steps.timestamp.outputs.RELEASE_NAME }}
+
+          draft: false
+
+          prerelease: false
+
+          files: |
+            source_code/app/build/outputs/apk/release/WallpaperPicker2-signed.apk
+
+        env:
+
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
