@@ -1,4 +1,4 @@
-# Version: 2
+# Version: 3
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
@@ -10,6 +10,7 @@
 # - Adición de paso de firmado de APK usando apksigner con keystore de depuración.
 # - Adición de generación automática de tag y release en GitHub con formato Wallpaper2-Build-YYYYMMDD-HHMM.
 # - Adjuntado automático del archivo APK firmado directamente a la Release pública.
+# - Solución al error AndroidXDependencyCheck: Inyección de gradle.properties habilitando android.useAndroidX=true y android.enableJetifier=true.
 
 name: Build AOSP WallpaperPicker2
 
@@ -44,6 +45,12 @@ jobs:
     - name: Generate Gradle Structure
       run: |
         cd source_code
+
+        cat << 'EOF' > gradle.properties
+        android.useAndroidX=true
+        android.enableJetifier=true
+        EOF
+
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
