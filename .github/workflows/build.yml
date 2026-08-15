@@ -1,10 +1,15 @@
-# Version: 1
+# Version: 2
 # ChangeLog:
 # - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
 # - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
 # - Inyección de configuración Gradle básica (settings.gradle, build.gradle, wrapper).
 # - Automatización de compilación de APK en modo Release/Unsigned.
 # - Carga del APK resultante a los artifacts de GitHub Actions.
+# - Corrección de error de Gradle 9.x: Inyección del bloque pluginManagement y definición de versión de com.android.application (8.2.2).
+# - Inyección de repositorios google() y mavenCentral() en settings.gradle y build.gradle.
+# - Adición de paso de firmado de APK usando apksigner con keystore de depuración.
+# - Adición de generación automática de tag y release en GitHub con formato Wallpaper2-Build-YYYYMMDD-HHMM.
+# - Adjuntado automático del archivo APK firmado directamente a la Release pública.
 
 name: Build AOSP WallpaperPicker2
 
@@ -16,6 +21,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout local repository
@@ -38,7 +45,28 @@ jobs:
       run: |
         cd source_code
         cat << 'EOF' > settings.gradle
+        pluginManagement {
+            repositories {
+                google()
+                mavenCentral()
+                gradlePluginPortal()
+            }
+        }
+        dependencyResolutionManagement {
+            repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        rootProject.name = "WallpaperPicker2"
         include ':app'
+        EOF
+
+        cat << 'EOF' > build.gradle
+        plugins {
+            id 'com.android.application' version '8.2.2' apply false
+        }
         EOF
 
         mkdir -p app
@@ -64,7 +92,6 @@ jobs:
             buildTypes {
                 release {
                     minifyEnabled false
-                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
                 }
             }
             
@@ -87,15 +114,34 @@ jobs:
     - name: Setup Gradle Wrapper
       run: |
         cd source_code
-        gradle wrapper
+        gradle wrapper --gradle-version 8.5
 
     - name: Build APK with Gradle
       run: |
         cd source_code
-        ./gradlew assembleRelease --stacktrace
+        ./gradlew :app:assembleRelease --stacktrace
 
-    - name: Upload APK Artifact
-      uses: actions/upload-artifact@v4
+    - name: Sign APK
+      run: |
+        cd source_code/app/build/outputs/apk/release/
+        keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+        $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks debug.keystore --ks-pass pass:android --out WallpaperPicker2-signed.apk app-release-unsigned.apk
+
+    - name: Generate Timestamp and Tag Name
+      id: timestamp
+      run: |
+        BUILD_DATE=$(date +'%Y%m%d-%H%M')
+        echo "TAG_NAME=Wallpaper2-Build-${BUILD_DATE}" >> $GITHUB_OUTPUT
+        echo "RELEASE_NAME=Wallpaper2-Build-${BUILD_DATE}" >> $GITHUB_OUTPUT
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: WallpaperPicker2-release
-        path: source_code/app/build/outputs/apk/release/*.apk
+        tag_name: ${{ steps.timestamp.outputs.TAG_NAME }}
+        name: ${{ steps.timestamp.outputs.RELEASE_NAME }}
+        draft: false
+        prerelease: false
+        files: |
+          source_code/app/build/outputs/apk/release/WallpaperPicker2-signed.apk
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
