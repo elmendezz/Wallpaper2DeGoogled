@@ -1,0 +1,101 @@
+# Version: 1
+# ChangeLog:
+# - Versión inicial: Configuración de runner Ubuntu, setup de JDK 17 y Android SDK.
+# - Clonación del repositorio AOSP WallpaperPicker2 desde Google Source.
+# - Inyección de configuración Gradle básica (settings.gradle, build.gradle, wrapper).
+# - Automatización de compilación de APK en modo Release/Unsigned.
+# - Carga del APK resultante a los artifacts de GitHub Actions.
+
+name: Build AOSP WallpaperPicker2
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout local repository
+      uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v3
+
+    - name: Clone AOSP WallpaperPicker2
+      run: |
+        git clone https://android.googlesource.com/platform/packages/apps/WallpaperPicker2 source_code
+
+    - name: Generate Gradle Structure
+      run: |
+        cd source_code
+        cat << 'EOF' > settings.gradle
+        include ':app'
+        EOF
+
+        mkdir -p app
+        mv src Android.bp app/ 2>/dev/null || true
+
+        cat << 'EOF' > app/build.gradle
+        plugins {
+            id 'com.android.application'
+        }
+
+        android {
+            namespace 'com.android.wallpaper'
+            compileSdk 34
+
+            defaultConfig {
+                applicationId "com.android.wallpaper"
+                minSdk 28
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+            }
+
+            buildTypes {
+                release {
+                    minifyEnabled false
+                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                }
+            }
+            
+            sourceSets {
+                main {
+                    manifest.srcFile 'AndroidManifest.xml'
+                    java.srcDirs = ['src']
+                    res.srcDirs = ['res']
+                }
+            }
+        }
+
+        dependencies {
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+            implementation 'com.google.android.material:material:1.11.0'
+            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+        }
+        EOF
+
+    - name: Setup Gradle Wrapper
+      run: |
+        cd source_code
+        gradle wrapper
+
+    - name: Build APK with Gradle
+      run: |
+        cd source_code
+        ./gradlew assembleRelease --stacktrace
+
+    - name: Upload APK Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: WallpaperPicker2-release
+        path: source_code/app/build/outputs/apk/release/*.apk
